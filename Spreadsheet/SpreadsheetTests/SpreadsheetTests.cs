@@ -1,629 +1,467 @@
+// Author: Hung Nguyen, Date: 9/28/2024, Course: CS 3500
 using CS3500.Formula;
 using CS3500.Spreadsheet;
-using System.Runtime.Intrinsics.X86;
-using System.Text.Encodings.Web;
-using System.Text.Json;
-// <summary>
-//   <para>
-//    This unit test is for testing method in SpreadSheets
-//   </para>
-// <authors> [Kuanyu Chien] </authors>
-// <date> [2024/09/20] </date>
-// </summary>
+using System;
+using System.Reflection;
+
 namespace SpreadsheetTests
 {
     [TestClass]
     public class SpreadsheetTests
     {
+
+        // --- Tests for GetNamesOfAllNonemptyCells ---*
+        /// <summary>
+        ///   <para>
+        ///     Make sure that GetNameOfAllNonemptyCells return the correct set with all the expected cell names
+        ///   </para>
+        ///   <remarks>
+        ///     Expecting set that has all the inserted cell names ["A1", "B1", "C1"]
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
-        public void GetNamesOfAllNonemptyCells_GetNameFromEmptySheet_sizeZero()
+        public void Spreadsheet_TestGetNamesOfAllNonemptyCells_Valid()
         {
-            Spreadsheet sp = new Spreadsheet();
-            Assert.AreEqual(0, sp.GetNamesOfAllNonemptyCells().Count);
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell("a1", "5");
+            s.SetContentsOfCell("B1", "dog");
+            s.SetContentsOfCell("C1", "A1+B1+3");
+            List<string> expected = new List<string>(["A1", "B1", "C1"]);
+            ISet<string> result = s.GetNamesOfAllNonemptyCells();
+            Assert.AreEqual(3, s.GetNamesOfAllNonemptyCells().Count);
+            foreach (string x in result)
+            {
+                Assert.IsTrue(expected.Contains(x));
+            }
         }
 
+        // --- Tests for TestSetCellContentTypeSwitchUp ---*
+        /// <summary>
+        ///   <para>
+        ///     Make sure that SetContentsOfCell correctly change the result as different types of input is put into its parameter, string should get Formula Error, formula and double
+        ///     should change the output of dependents
+        ///   </para>
+        ///   <remarks>
+        ///     An empty string content should disqualify D1 as a nonempty cell so the result should not include it and have a count of 3 
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
-        public void GetNamesOfAllNonemptyCells_SomeCellContentHaveBeenRemove()
+        public void Spreadsheet_TestSetCellContentTypeSwitchUp_Valid()
         {
-            Spreadsheet sp = new Spreadsheet();
-            sp.SetContentsOfCell("a1", "apple");
-            sp.SetContentsOfCell("b1", "bat");
-            sp.SetContentsOfCell("a1", "");
-            sp.SetContentsOfCell("c1", "cat");
-            sp.SetContentsOfCell("d1", "duck");
-            sp.SetContentsOfCell("c1", "");
-            Assert.AreEqual(2, sp.GetNamesOfAllNonemptyCells().Count);
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell("a1", "5");
+            s.SetContentsOfCell("B1", "=D1");
+            s.SetContentsOfCell("E1", "3");
+            s.SetContentsOfCell("D1", "8");
+            s.SetContentsOfCell("C1", "=B1+E1+A1");
+            Assert.AreEqual((double)16, s.GetCellValue("C1"));
+            s.SetContentsOfCell("B1", "5");
+            Assert.AreEqual((double)5, s.GetCellValue("B1"));
+            Assert.AreEqual((double)13, s.GetCellValue("C1"));
+            s.SetContentsOfCell("B1", "=E1");
+            Assert.AreEqual((double)11, s.GetCellValue("C1"));
+            s.SetContentsOfCell("B1", "dog");
+            Assert.AreEqual("dog", s.GetCellContents("B1"));
+            Assert.IsTrue((s.GetCellValue("C1")) is FormulaError);
         }
 
+
+        // --- Tests for TestSaveAndLoadOfASpreadsheet ---*
+        /// <summary>
+        ///   <para>
+        ///   Make sure Saving and Loading correctly, getting all the set values and contents after saving and loading the cells 
+        ///   </para>
+        ///   <remarks>
+        ///     After setting up the original spreadsheet, save it and loading it. Asserts should return all the same value and contents for saved and loaded cells
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
-        public void SetCellContents_SetDoubleInEmptySheet_sizeOne()
+        public void Spreadsheet_TestSaveAndLoadOfASpreadsheet_Valid()
         {
-            Spreadsheet sp = new Spreadsheet();
-            sp.SetContentsOfCell("a1", "0.1");
-            Assert.AreEqual(1, sp.GetNamesOfAllNonemptyCells().Count);
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell("a1", "5");
+            s.SetContentsOfCell("B1", "=D1");
+            s.SetContentsOfCell("E1", "3");
+            s.SetContentsOfCell("D1", "8");
+            s.SetContentsOfCell("C1", "=B1+E1+A1");
+            Assert.IsTrue(s.Changed);                                           // Spreadsheet has been changed
+            s.Save("file.txt");
+            Assert.IsFalse(s.Changed);                                          // Since we just saved, spreadsheet has not been changed
+            s = new Spreadsheet();
+            s = new Spreadsheet("file.txt");
+            Assert.IsTrue(s.Changed);                                           // Spreadsheet has been changed since we loaded another spreadsheet into it
+            Assert.AreEqual((double)16, s.GetCellValue("C1"));                  // Make sure all the value is still the same
+            Assert.AreEqual((double)8, s.GetCellValue("B1"));
+            Assert.AreEqual((double)8, s.GetCellValue("D1"));
+            Assert.AreEqual((double)3, s.GetCellValue("E1"));
+            Assert.AreEqual((double)5, s.GetCellValue("A1"));
+            Assert.AreEqual((double)3, s.GetCellContents("E1"));                // Make sure all the contents are the same
+            Assert.AreEqual((double)5, s.GetCellContents("A1"));
+            Assert.AreEqual((double)8, s.GetCellContents("D1"));
+            Assert.AreEqual(new Formula("D1"), s.GetCellContents("B1"));
+            Assert.AreEqual(new Formula("B1+E1+A1"), s.GetCellContents("C1"));
+
         }
 
+        // --- Tests for TestSaveThrow ---*
+        /// <summary>
+        ///   <para>
+        ///   Make sure Saving Throws Exception when the address does not exist
+        ///   </para>
+        ///   <remarks>
+        ///     When an address does not exist, a SpreadsheetReadWriteException should be thrown when save is called
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
-        public void SetCellContents_SetMultipleDoubleInCell_sizeFive()
+        [ExpectedException(typeof(SpreadsheetReadWriteException))]
+        public void Spreadsheet_TestSaveThrow_Valid()
         {
-            Spreadsheet sp = new Spreadsheet();
-            sp.SetContentsOfCell("a1", "0.1");
-            sp.SetContentsOfCell("b1", " 0.1");
-            sp.SetContentsOfCell("c1", "0.1");
-            sp.SetContentsOfCell("D1", "0.1");
-            sp.SetContentsOfCell("F1", "0.1");
-            Assert.AreEqual(5, sp.GetNamesOfAllNonemptyCells().Count);
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("A1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("B1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("C1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("D1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("F1"));
-            Assert.IsFalse(sp.GetNamesOfAllNonemptyCells().Contains("f1"));
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell("a1", "5");
+            s.SetContentsOfCell("B1", "=D1");
+            s.SetContentsOfCell("E1", "3");
+            s.SetContentsOfCell("D1", "8");
+            s.SetContentsOfCell("C1", "=B1+E1+A1");
+            s.Save("/missing/save.json");
         }
 
+        // --- Tests for TestSaveThrow ---*
+        /// <summary>
+        ///   <para>
+        ///   Make sure Loading Throws Exception when the address does not exist
+        ///   </para>
+        ///   <remarks>
+        ///     When an address does not exist, a SpreadsheetReadWriteException should be thrown when save is called
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
-        public void SetCellContents_RewriteContentDoubleCell()
+        [ExpectedException(typeof(SpreadsheetReadWriteException))]
+        public void Spreadsheet_TestLoadThrowValid()
         {
-            Spreadsheet sp = new Spreadsheet();
-            sp.SetContentsOfCell("a1", "0.1");
-            sp.SetContentsOfCell("b1", "0.2");
-            sp.SetContentsOfCell("A1", "0.3");
-            Assert.AreEqual(2, sp.GetNamesOfAllNonemptyCells().Count);
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("A1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("B1"));
-            Assert.AreEqual(0.3, sp.GetCellContents("A1"));
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell("a1", "5");
+            s.SetContentsOfCell("B1", "=D1");
+            s.SetContentsOfCell("E1", "3");
+            s.SetContentsOfCell("D1", "8");
+            s.SetContentsOfCell("C1", "=B1+E1+A1");
+            s = new Spreadsheet("/missing/save.json");
         }
 
+        // --- Tests for StessTestSetContentOfCell ---*
+        /// <summary>
+        ///   <para>
+        ///   Make sure FormulaError are returned for every content addition before a true value is added into the final cell. Make sure all the cells update when final cell is added
+        ///   </para>
+        ///   <remarks>
+        ///     All the cells added should have a FormulaError until A200 is added into the cell dictionary with value of 100 
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
-        public void SetCellContents_CheckRewriteContentDoubleCellReturnList()
+        public void Spreadsheet_StessTestSetContentOfCell()
         {
-            Spreadsheet sp = new Spreadsheet();
-            List<string> original_return_list = (List<string>)sp.SetContentsOfCell("a1", "0.1");
-            sp.SetContentsOfCell("b1", "0.2");
-            List<string> return_list = (List<string>)sp.SetContentsOfCell("A1", "0.3");
-            Assert.AreEqual(1, original_return_list.Count);
-            Assert.AreEqual(1, return_list.Count);
-            Assert.IsTrue(original_return_list.Contains("A1"));
-            Assert.IsTrue(return_list.Contains("A1"));
+            Spreadsheet s = new Spreadsheet();
+            for(int i =1; i <= 200; i++)
+            {
+                s.SetContentsOfCell("A" + i, "=A" + (i + 1));
+                Assert.IsTrue((s.GetCellValue("A"+i)) is FormulaError);
+                if (i == 200) { s.SetContentsOfCell("A200", "100"); }
+            }
+                for (int j = 1; j < 200; j++)
+                {
+                    Assert.AreEqual((double)100, s.GetCellValue("A"+j));
+                }
         }
 
+        // --- Tests for StessTestSetContentOfCell ---*
+        /// <summary>
+        ///   <para>
+        ///   Make sure loading and saving work as even if they are called multiple time and each time only adding 1 element. The final spreadsheet should still have all the cells added
+        ///    even when it's excessively save and load. It should still add the correct cell and keep track of it
+        ///   </para>
+        ///   <remarks>
+        ///     Expected behavior is all cells are save and loaded correctly with Cells goes from A1 to A200 
+        ///   </remarks>
+        /// </summary>
+        [TestMethod]
+        public void Spreadsheet_StessTestSaveLoad()
+        {
+            Spreadsheet s = new Spreadsheet();
+            for (int i = 1; i <= 200; i++)
+            {
+                if (i > 1) { s = new Spreadsheet("file.txt"); }
+                s.SetContentsOfCell("A" + i, ""+i);
+                s.Save("file.txt");
+                s = new Spreadsheet();
+            }
+            s = new Spreadsheet("file.txt");
+            for (int i = 1; i <= 200; i++)
+            {
+                Assert.AreEqual((double)i, s.GetCellValue("A" + i));
+                Assert.AreEqual((double)i, s.GetCellContents("A" + i));
+            }
+
+        }
+
+        // --- Tests for Spreadsheet_StessTestSetContentOfCellWithOnePrimaryDependee ---*
+        /// <summary>
+        ///   <para>
+        ///   Make sure that all cells will update correctly when primary dependee A1 is updated with a value. Each cell with depend on A1 and the cell before it
+        ///   </para>
+        ///   <remarks>
+        ///     This means all cell with have the value of A1*(i-2)+ A2 so when we set A1 to 10 and A2 to 2 it should be 10(i-2)+5. A3 will be 15, A50 will be 485, etc.
+        ///   </remarks>
+        /// </summary>
+        [TestMethod]
+        public void Spreadsheet_StessTestSetContentOfCellWithOnePrimaryDependee()
+        {
+            Spreadsheet s = new Spreadsheet();
+            for (int i = 3; i <= 200; i++)
+            {
+                
+                s.SetContentsOfCell("A" + i, "=A1" + "+A"+(i-1) );
+            }
+            s.SetContentsOfCell("A1", "10");
+            s.SetContentsOfCell("A2", "5");
+            for (int i = 3; i <= 200; i++)
+            {
+
+                Assert.AreEqual((double)(10*(i-2)+5),s.GetCellValue("A" + i));
+            }
+        }
+
+        // --- Tests for StressTestSetContentOfCellWithEvaluation ---*
+        /// <summary>
+        ///   <para>
+        ///   Make sure adding a series of cells together from A2 to A200 result in the correct answer and multiplying from A2 to A50 results in the correct answers
+        ///   </para>
+        ///   <remarks>
+        ///     When an address does not exist, a SpreadsheetReadWriteException should be thrown when save is called
+        ///   </remarks>
+        ///   Each cells name will have the same digit stored in it as values, i.e. A2 has value 2, A50 has value 50, etc.
+        /// </summary>
+        [TestMethod]
+        public void Spreadsheet_StressTestSetContentOfCellWithEvaluation()
+        {
+            Spreadsheet s = new Spreadsheet();
+            string x = "=A2";
+            string y = x;
+            double sum = 2;
+            double result = 2;
+            s.SetContentsOfCell("A2", "2");
+            for (int i = 3; i <= 200; i++)
+            {
+                sum += i;
+                s.SetContentsOfCell("A" + i, ""+i);
+                if (i < 50)
+                {
+                    y += "* A" + i;
+                    result *= i;
+                }
+                else if(i== 50)
+                {
+                    y += "*A50";
+                    result *= i;
+                }
+                if (i < 200) 
+                { 
+                    x += "+ A" + i;
+                }
+                else 
+                { 
+                    x += "+A200";
+                }   
+            }
+            s.SetContentsOfCell("A1", x);
+            s.SetContentsOfCell("A0", y);
+            Assert.AreEqual(sum, s.GetCellValue("A1"));    // Result should be 20999 which is correct
+            Assert.AreEqual(result, s.GetCellValue("A0")); // Result should be 50! which is correct
+        }
+
+        // --- Tests for this[string name] ---*
+        /// <summary>
+        ///   <para>
+        ///     Make sure this[string name] will return the correct result as if we are calling GetCellValue
+        ///   </para>
+        ///   <remarks>
+        ///     An empty string content should disqualify D1 as a nonempty cell so the result should not include it and have a count of 3 
+        ///   </remarks>
+        /// </summary>
+        [TestMethod]
+        public void Spreadsheet_TestthisMethod_Valid()
+        {
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell("a1", "5");
+            Assert.AreEqual((double) 5, s["A1"]);
+            Assert.AreEqual(s.GetCellValue("A1"), s["A1"]);
+
+        }
+
+        // --- Tests for Invalid Name Exception ---*
+        /// <summary>
+        ///   <para>
+        ///     Make sure that a InvalidNameException is thrown when an empty string is put as a cell name
+        ///   </para>
+        ///   <remarks>
+        ///     A variable with at least 1 character and 1 digit is expected so a string without digits like dog should throw InvalidNameException
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
         [ExpectedException(typeof(InvalidNameException))]
-        public void SetContents_InvalidDoubleCellName()
+        public void Spreadsheet_TestInvalidNameException_Valid()
         {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("123", "0.1");
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell("dog", "5");
         }
 
+        // --- Tests for Invalid Name Exception ---*
+        /// <summary>
+        ///   <para>
+        ///     Make sure that a InvalidNameException is not thrown when a valid name is put as a cell name
+        ///   </para>
+        ///   <remarks>
+        ///     A variable with at least 1 character and 1 digit is expected so dog1 should be a viable input
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
-        public void SetCellContents_SetEmptyString()
+        public void Spreadsheet_TestInvalidNameException_Invalid()
         {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "0.1");
-            List<string> return_list = (List<string>)sp.SetContentsOfCell("A1", "");
-            Assert.AreEqual(0, sp.GetNamesOfAllNonemptyCells().Count);
-            Assert.AreEqual(1, return_list.Count);
-            Assert.IsTrue(return_list.Contains("A1"));
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell("dog1", "5");
         }
 
-        [TestMethod]
-        public void SetCellContents_SetTextInEmptySheet_sizeOne()
-        {
-            Spreadsheet sp = new Spreadsheet();
-            sp.SetContentsOfCell("a1", "hello");
-            Assert.AreEqual(1, sp.GetNamesOfAllNonemptyCells().Count);
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("A1"));
-        }
-
-        [TestMethod]
-        public void SetCellContents_SetMultipleTextInCell_sizeFive()
-        {
-            Spreadsheet sp = new Spreadsheet();
-            sp.SetContentsOfCell("a1", "hi");
-            sp.SetContentsOfCell("b1", "hello");
-            sp.SetContentsOfCell("c1", "cat");
-            sp.SetContentsOfCell("D1", "dog");
-            sp.SetContentsOfCell("F1", "food");
-            Assert.AreEqual(5, sp.GetNamesOfAllNonemptyCells().Count);
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("A1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("B1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("C1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("D1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("F1"));
-            Assert.IsFalse(sp.GetNamesOfAllNonemptyCells().Contains("f1"));
-        }
-
-        [TestMethod]
-        public void SetCellContents_RewriteContentTextCell()
-        {
-            Spreadsheet sp = new Spreadsheet();
-            sp.SetContentsOfCell("a1", "apple");
-            sp.SetContentsOfCell("b1", "bat");
-            sp.SetContentsOfCell("A1", "cat");
-            Assert.AreEqual(2, sp.GetNamesOfAllNonemptyCells().Count);
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("A1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("B1"));
-            Assert.AreEqual("cat", sp.GetCellContents("A1"));
-        }
-
-        [TestMethod]
-        public void SetCellContents_CheckRewriteContentTextCellReturnList()
-        {
-            Spreadsheet sp = new Spreadsheet();
-            List<string> original_return_list = (List<string>)sp.SetContentsOfCell("a1", "hi");
-            sp.SetContentsOfCell("b1", "bat");
-            List<string> return_list = (List<string>)sp.SetContentsOfCell("A1", "HI");
-            Assert.AreEqual(1, original_return_list.Count);
-            Assert.AreEqual(1, return_list.Count);
-            Assert.IsTrue(original_return_list.Contains("A1"));
-            Assert.IsTrue(return_list.Contains("A1"));
-        }
-
+        // --- Tests for Invalid Name Exception ---*
+        /// <summary>
+        ///   <para>
+        ///     Make sure that a InvalidNameException is thrown when an empty string is put as a cell name
+        ///   </para>
+        ///   <remarks>
+        ///     A variable with at least 1 character and 1 digit is expected so an empty string should throw InvalidNameException
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
         [ExpectedException(typeof(InvalidNameException))]
-        public void SetContents_InvalidTextCellName()
+        public void Spreadsheet_TestInvalidNameExceptionWithEmptyName_Valid()
         {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("123", "hi");
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell(string.Empty, "5");
         }
 
+        // --- Tests for Circular Exception ---*
+        /// <summary>
+        ///   <para>
+        ///     Make sure that a Circular Exception is thrown when a cell is calling itself in a formula
+        ///   </para>
+        ///   <remarks>
+        ///     A1 cannot be a dependent of itself so it cannot have A1 in its formula and a Circular Exception is expected
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
-        public void SetCellContents_SetFormulaInEmptySheet_sizeOne()
-        {
-            Spreadsheet sp = new Spreadsheet();
-            sp.SetContentsOfCell("a1", "=1+2");
-            Assert.AreEqual(1, sp.GetNamesOfAllNonemptyCells().Count);
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("A1"));
-        }
-
-        [TestMethod]
-        public void SetCellContents_SetMultipleFormulaInCell_sizeFive()
-        {
-            Spreadsheet sp = new Spreadsheet();
-            sp.SetContentsOfCell("a1", "=1-2");
-            sp.SetContentsOfCell("b1", "=1-2");
-            sp.SetContentsOfCell("c1", "=3+1");
-            sp.SetContentsOfCell("D1", "=4*1");
-            sp.SetContentsOfCell("F1", "=5/1");
-            Assert.AreEqual(5, sp.GetNamesOfAllNonemptyCells().Count);
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("A1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("B1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("C1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("D1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("F1"));
-            Assert.IsFalse(sp.GetNamesOfAllNonemptyCells().Contains("f1"));
-        }
-
-        [TestMethod]
-        public void SetCellContents_RewriteContentFormulaCell()
-        {
-            Spreadsheet sp = new Spreadsheet();
-            sp.SetContentsOfCell("a1", "=1-1");
-            sp.SetContentsOfCell("b1", "=1-1");
-            sp.SetContentsOfCell("A1", "=1-2");
-            Assert.AreEqual(2, sp.GetNamesOfAllNonemptyCells().Count);
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("A1"));
-            Assert.IsTrue(sp.GetNamesOfAllNonemptyCells().Contains("B1"));
-            Assert.IsTrue(sp.GetCellContents("A1").Equals(new Formula("1-2")));
-        }
-
-        [TestMethod]
-        public void SetCellContents_CheckRewriteContentFormulaCellReturnList()
-        {
-            Spreadsheet sp = new Spreadsheet();
-            List<string> original_return_list = (List<string>)sp.SetContentsOfCell("a1", "=1*2");
-            sp.SetContentsOfCell("b1", "=2+1");
-            List<string> return_list = (List<string>)sp.SetContentsOfCell("A1", "=3*2");
-            Assert.AreEqual(1, original_return_list.Count);
-            Assert.AreEqual(1, return_list.Count);
-            Assert.IsTrue(original_return_list.Contains("A1"));
-            Assert.IsTrue(return_list.Contains("A1"));
-        }
-
-        [TestMethod]
-        public void SetCellContents_AddCellRelation()
-        {
-            Spreadsheet sp = new Spreadsheet();
-            sp.SetContentsOfCell("a1", "1.0");
-            sp.SetContentsOfCell("B1", "5.0");
-            sp.SetContentsOfCell("c1", "=a1+b1");
-            sp.SetContentsOfCell("d1", "=C1*2");
-            List<string> return_list = (List<string>)sp.SetContentsOfCell("a1", "2.0");
-            Assert.AreEqual(3, return_list.Count);
-            Assert.IsTrue(return_list.Contains("A1"));
-            Assert.IsTrue(return_list.Contains("C1"));
-            Assert.IsTrue(return_list.Contains("D1"));
-        }
-
-        [TestMethod]
-
         [ExpectedException(typeof(CircularException))]
-        public void SetCellContents_AddCycledCellRelation()
+        public void Spreadsheet_TestCircularException_Valid()
         {
-            Spreadsheet sp = new Spreadsheet();
-            sp.SetContentsOfCell("a1", "=c1");
-            sp.SetContentsOfCell("b1", "=a1");
-            sp.SetContentsOfCell("c1", "=b1");
-            List<string> return_list = (List<string>)sp.SetContentsOfCell("a1", "2.0");
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell("A1", "=A1+B1+A1");
         }
 
+        // --- Tests for Circular Exception ---*
+        /// <summary>
+        ///   <para>
+        ///     Make sure that a Circular Exception is thrown when a dependent cell called upon a dependee cell
+        ///   </para>
+        ///   <remarks>
+        ///     C1 is a dependent of A1 so it cannot call A1 and a Circular Exception is expected
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
-        [ExpectedException(typeof(InvalidNameException))]
-        public void SetContents_InvalidFormulaCellName()
+        [ExpectedException(typeof(CircularException))]
+        public void Spreadsheet_TestCircularExceptionWithMultipleFormula_Valid()
         {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("123", "=1-2");
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell("A1", "=A1+B1+C1");
+            s.SetContentsOfCell("B1", "5");
+            s.SetContentsOfCell("C1", "=A1+B1");  
         }
 
+        // --- Tests for Get Cell Contents ---*
+        /// <summary>
+        ///   <para>
+        ///     Make sure set cell accept unnormalized variable and output the expected content
+        ///   </para>
+        ///   <remarks>
+        ///     a1 and A1 should be treated the same and return the same content
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
-        public void SetCellContents_checkFormulaReturnList()
+        public void Spreadsheet_TestGetCellContents_Valid()
         {
-            Spreadsheet sp = new Spreadsheet();
-            List<string> return_list = (List<string>)sp.SetContentsOfCell("a1", "=1+1");
-            Assert.AreEqual(1, return_list.Count);
-            Assert.IsTrue(return_list.Contains("A1"));
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell("a1", "5");
+            Assert.AreEqual((double)5, s.GetCellContents("a1"));
+            Assert.AreEqual((double)5, s.GetCellContents("A1"));
         }
 
+        // --- Tests for GetCellContents With Unnormalized Names ---*
+        /// <summary>
+        ///   <para>
+        ///     Make sure spreadsheet can accept both unnormalized and normalized character
+        ///   </para>
+        ///   <remarks>
+        ///     A1, B1 and C1 are expected to be treated the same as a1, b1 and c1 so they are expected to return the same corresponding content
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
-        [ExpectedException(typeof(InvalidNameException))]
-        public void GetCellContent_InvalidCellName()
+        public void Spreadsheet_TestGetCellContentsWithNotNormalizedNames_Valid()
         {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "0.1");
-            sp.GetCellContents("abc");
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell("A1", "dog");
+            s.SetContentsOfCell("B1", "cat");
+            s.SetContentsOfCell("C1", "hippo");
+            List<string> result = new List<string>(["A1", "B1", "C1"]);
+            Assert.AreEqual("dog", s.GetCellContents("a1"));
+            Assert.AreEqual("cat", s.GetCellContents("b1"));
+            Assert.AreEqual("hippo", s.GetCellContents("c1"));
+            
         }
 
+        // --- Tests for GetEmptyCellContents ---*
+        /// <summary>
+        ///   <para>
+        ///     Make sure an Empty Cell returns an empty string as content and does not show up when looking for nonempty cells
+        ///   </para>
+        ///   <remarks>
+        ///     D1 is empty and should not register as a nonempty cell, so the count of GetNamesOfAllNonemptyCells is expected to be 0
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
-        public void GetCellContent_GetFromDoubleCellContent()
+        public void Spreadsheet_TestGetEmptyCellContents_Valid()
         {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "0.1");
-            Assert.AreEqual(0.1, sp.GetCellContents("a1"));
-        }
-
-        [TestMethod]
-        public void GetCellContent_GetFromTextCellContent()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "hello");
-            Assert.AreEqual("hello", sp.GetCellContents("a1"));
-        }
-
-        [TestMethod]
-        public void GetCellContent_GetFromFormulaCellContent()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "=1+1");
-            Assert.IsTrue(sp.GetCellContents("a1").Equals(new Formula("1+1")));
-        }
-
-        [TestMethod]
-        public void GetCellContent_GetFromEmptyCellContent()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "");
-            Assert.AreEqual(sp.GetCellContents("a1"), "");
-        }
-
-        [TestMethod]
-        public void SetCellContent_OverRideFormula_originalDependencyShouldBeDeleded()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "1");
-            sp.SetContentsOfCell("a2", "2");
-            sp.SetContentsOfCell("a3", "3");
-            sp.SetContentsOfCell("b1", "=a1 + a2");
-            sp.SetContentsOfCell("b1", "=a2 + a3");
-            Assert.AreEqual(1, sp.SetContentsOfCell("a1", "100").Count);
-        }
-
-        [TestMethod]
-
-        [ExpectedException(typeof(InvalidNameException))]
-        public void GetCellVaue_invokeInvalidNameException()
-        {
-            Spreadsheet sp = new();
-            sp.GetCellValue("12d");
-        }
-
-        [TestMethod]
-        public void GetCellVaue_getFromEmptyCell_returnEmptyString()
-        {
-            Spreadsheet sp = new();
-            Assert.IsTrue("".Equals(sp.GetCellValue("a1")));
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell("D1", string.Empty);
+            Assert.AreEqual(string.Empty, s.GetCellContents("D1"));
+            List<string> result = new List<string>();
+            Assert.AreEqual(result.Count, s.GetNamesOfAllNonemptyCells().Count);
         }
 
 
+        // --- Tests for GetEmptyCellContents ---*
+        /// <summary>
+        ///   <para>
+        ///     Make sure an Empty Cell returns an empty string as content and does not show up when looking for nonempty cells
+        ///   </para>
+        ///   <remarks>
+        ///     D1 is empty and should have "dog" as content and C1 has "" as content which should also be an empty string and not register as a nonempty cell
+        ///   </remarks>
+        /// </summary>
         [TestMethod]
-        public void GetCellVaue_getStringValue()
+        public void Spreadsheet_TestGetEmptyCellContents_InValid()
         {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "hi");
-            Assert.IsTrue("hi".Equals(sp.GetCellValue("a1")));
-        }
-
-
-        [TestMethod]
-        public void GetCellVaue_getDoubleValue()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "2");
-            Assert.AreEqual(2.0, sp.GetCellValue("a1"));
-        }
-
-        [TestMethod]
-        public void GetCellVaue_getDoubleValueFromFormula()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "2.0");
-            sp.SetContentsOfCell("a2", "=a1+5");
-            Assert.AreEqual(7.0, sp.GetCellValue("a2"));
-        }
-
-        [TestMethod]
-        public void GetCellVaue_getFormulaErrorValueFromFormula()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "2.0");
-            sp.SetContentsOfCell("a2", "=a1+b1");
-            Assert.IsTrue(sp.GetCellValue("a2") is FormulaError);
-        }
-
-        [TestMethod]
-        public void this_name_getFromEmptyCell_returnEmptyString()
-        {
-            Spreadsheet sp = new();
-            Assert.IsTrue("".Equals(sp["a2"]));
-        }
-
-        [TestMethod]
-        public void this_name_getStringValue()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "hi");
-            Assert.IsTrue("hi".Equals(sp["a1"]));
-        }
-
-
-        [TestMethod]
-        public void this_name_getDoubleValue()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "2");
-            Assert.AreEqual(2.0, sp["a1"]);
-        }
-
-        [TestMethod]
-        public void this_name_getDoubleValueFromFormula()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "2.0");
-            sp.SetContentsOfCell("a2", "=a1+5");
-            Assert.AreEqual(7.0, sp["a2"]);
-        }
-
-        [TestMethod]
-        public void this_name_getFormulaErrorValueFromFormula()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "2.0");
-            sp.SetContentsOfCell("a2", "=a1+b1");
-            Assert.IsTrue(sp["a2"] is FormulaError);
-        }
-
-        [TestMethod]
-        [ExpectedException(typeof(FormulaFormatException))]
-        public void SetContentOfCell_SetInvalidFormulaWithTwoOperatorConnect_FormulaFormatException()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "=a1--0");
-        }
-
-        [TestMethod]
-        [ExpectedException(typeof(FormulaFormatException))]
-        public void SetContentOfCell_SetInvalidFormulaWithEmptyFormula_FormulaFormatException()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "=");
-        }
-
-        [TestMethod]
-        public void SetContentOfCell_returnCorrectOrderOfdependencyChain()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "1");
-            sp.SetContentsOfCell("a2", "2");
-            sp.SetContentsOfCell("a3", "3");
-            sp.SetContentsOfCell("b1", "=a1 + a2 + a3 + 1");
-            sp.SetContentsOfCell("c1", "=b1");
-            Assert.AreEqual(7.0, sp.GetCellValue("c1"));
-            LinkedList<string> expect = new LinkedList<string>();
-            expect.AddFirst("C1");
-            expect.AddFirst("B1");
-            expect.AddFirst("A1");
-            Assert.IsTrue(sp.SetContentsOfCell("A1", "100.0").SequenceEqual(expect));
-            Assert.AreEqual(106.0, sp.GetCellValue("c1"));
-        }
-
-        [TestMethod]
-        public void SetContentOfCell_OneVariableIsString_becomeFormulaError()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "hi");
-            sp.SetContentsOfCell("a2", "2");
-            sp.SetContentsOfCell("b1", "=a1 + a2");
-            Assert.IsTrue(sp.GetCellValue("b1") is FormulaError);
-        }
-
-        [TestMethod]
-        public void SetContentOfCell_ComplexcateVariableChain()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "1");
-            sp.SetContentsOfCell("a2", "2");
-            sp.SetContentsOfCell("a3", "3");
-            sp.SetContentsOfCell("b1", "=a1 + a2 + a3");
-            Assert.AreEqual(6.0, sp.GetCellValue("b1"));
-            sp.SetContentsOfCell("b2", "=a1 + 1");
-            Assert.AreEqual(2.0, sp.GetCellValue("b2"));
-            sp.SetContentsOfCell("c1", "=b1*b2-a3");
-            Assert.AreEqual(9.0, sp.GetCellValue("c1"));
-            sp.SetContentsOfCell("d1", "=c1/3");
-            Assert.AreEqual(3.0, sp.GetCellValue("d1"));
-
-            sp.SetContentsOfCell("e1", "=d1");
-            Assert.AreEqual(3.0, sp.GetCellValue("e1"));
-        }
-
-        [TestMethod]
-        public void SetContentOfCell_VariableChain_breakTheDependencyWhenFirstSetNumber()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "=a2");
-            sp.SetContentsOfCell("a2", "=a3");
-            sp.SetContentsOfCell("a3", "=a4");
-            sp.SetContentsOfCell("a4", "=a5");
-            LinkedList<string> first_chain = new LinkedList<string>();
-            LinkedList<string> last_chain = new LinkedList<string>();
-            first_chain.AddFirst("A1");
-            first_chain.AddFirst("A2");
-            last_chain.AddFirst("A3");
-            last_chain.AddFirst("A4");
-            last_chain.AddFirst("A5");
-            Assert.IsTrue(sp.SetContentsOfCell("A2", "101.0").SequenceEqual(first_chain));
-            Assert.IsTrue(sp.SetContentsOfCell("A5", "100.0").SequenceEqual(last_chain));
-        }
-
-        [TestMethod]
-        public void SetContentOfCell_ComplexcateVariableChainWithString_getFormulaError()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "1");
-            sp.SetContentsOfCell("a2", "2");
-            sp.SetContentsOfCell("a3", "hi");
-            sp.SetContentsOfCell("b1", "=a1 + a2 + a3");
-            Assert.IsTrue(sp.GetCellValue("b1") is FormulaError);
-            sp.SetContentsOfCell("c1", "=b1*2");
-            Assert.IsTrue(sp.GetCellValue("c1") is FormulaError);
-        }
-
-        [TestMethod]
-        public void IsChanged_NewSpreadSheet_false()
-        {
-            Spreadsheet sp = new();
-            Assert.IsFalse(sp.Changed);
-        }
-
-        [TestMethod]
-        public void IsChanged_SetStringInCell_true()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a11", "hi");
-            Assert.IsTrue(sp.Changed);
-        }
-
-        [TestMethod]
-        public void IsChanged_SetDoubleInCell_true()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a11", "2.5");
-            Assert.IsTrue(sp.Changed);
-        }
-
-        [TestMethod]
-        public void IsChanged_SetFormulaInCell_true()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a11", "=a1 + 2");
-            Assert.IsTrue(sp.Changed);
-        }
-
-        [TestMethod]
-        public void Save_simpleSpreadSheet()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "hi");
-            sp.SetContentsOfCell("b2", "2.0");
-            sp.SetContentsOfCell("c3", "=b2+2");
-            sp.Save("save.txt");
-            var jsonOptions = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            string json = JsonSerializer.Serialize(sp, jsonOptions);
-            File.WriteAllText("save1.txt", json);
-            string sp_save = File.ReadAllText("save.txt");
-            string expect = File.ReadAllText("save1.txt");
-            Assert.AreEqual(expect, sp_save);
-        }
-
-        [TestMethod]
-        public void Save_emptySpreadSheet()
-        {
-            Spreadsheet sp = new();
-            sp.Save("save.txt");
-            var jsonOptions = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            string json = JsonSerializer.Serialize(sp, jsonOptions);
-            File.WriteAllText("save1.txt", json);
-            string sp_save = File.ReadAllText("save.txt");
-            string expect = File.ReadAllText("save1.txt");
-            Assert.AreEqual(expect, sp_save);
-        }
-
-
-        [TestMethod]
-        [ExpectedException(typeof(SpreadsheetReadWriteException))]
-        public void Save_saveInvalidPath_throwSpreadsheetReadWriteException()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("a1", "hi");
-            sp.SetContentsOfCell("b2", "2.0");
-            sp.SetContentsOfCell("c3", "=b2+2");
-            sp.Save("/some/nonsense/path.txt");
-        }
-
-        [TestMethod]
-        public void Spreadsheet_constructor_simpleSpreadSheet()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("A1", "hi");
-            sp.SetContentsOfCell("B2", "2.0");
-            sp.SetContentsOfCell("C3", "=b2+2");
-            sp.Save("save.txt");
-            Spreadsheet ss = new Spreadsheet("save.txt");
-
-            Assert.AreEqual("hi", ss.GetCellValue("A1"));
-
-            Assert.AreEqual(2.0, ss.GetCellValue("B2"));
-
-            Assert.AreEqual(4.0, ss.GetCellValue("C3"));
-        }
-
-        [TestMethod]
-        [ExpectedException(typeof(SpreadsheetReadWriteException))]
-        public void Spreadsheet_constructor_InvalidFilePath_throwSpreadsheetReadWriteException()
-        {
-            Spreadsheet sp = new();
-            sp.SetContentsOfCell("A1", "hi");
-            sp.SetContentsOfCell("B2", "2.0");
-            sp.SetContentsOfCell("C3", "=b2+2");
-            sp.Save("save.txt");
-            Spreadsheet ss = new Spreadsheet("save5.txt");
-        }
-
-
-        [TestMethod]
-        [ExpectedException(typeof(SpreadsheetReadWriteException))]
-        public void Spreadsheet_constructor_InvalidFileContent_throwSpreadsheetReadWriteException()
-        {
-            string textContent = "null";
-            File.WriteAllText("save.txt", textContent);
-            Spreadsheet ss = new Spreadsheet("save.txt");
+            Spreadsheet s = new Spreadsheet();
+            s.SetContentsOfCell("D1", string.Empty);
+            s.SetContentsOfCell("C1", "");
+            Assert.AreNotEqual("dog", s.GetCellContents("D1"));
+            List<string> result = new List<string>();
+            Assert.AreNotEqual(1, s.GetNamesOfAllNonemptyCells().Count);
+            
         }
     }
 }

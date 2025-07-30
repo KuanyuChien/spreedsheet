@@ -1,24 +1,43 @@
-﻿// <copyright file="Spreadsheet.cs" company="UofU-CS3500">
+﻿// <copyright file="Spreadsheet.c//s" company="UofU-CS3500">
 // Copyright (c) 2024 UofU-CS3500. All rights reserved.
 // </copyright>
 
 // Written by Joe Zachary for CS 3500, September 2013
 // Update by Profs Kopta and de St. Germain, Fall 2021, Fall 2024
-// Kuanyu Chien- Updated return types, Fall 2024
-// Kuanyu Chien- Updated documentation, Fall 2024
+//     - Updated return types
+//     - Updated documentation
+// Co-author: Hung Nguyen, Date: 10/20/2024, Course: CS 3500
 namespace CS3500.Spreadsheet;
 
 using CS3500.Formula;
 using CS3500.DependencyGraph;
-using System.Text.RegularExpressions;
-using System.Text.Json;
-using static System.Net.Mime.MediaTypeNames;
+using static CS3500.Spreadsheet.Spreadsheet;
 using static System.Runtime.InteropServices.JavaScript.JSType;
+using static System.Net.Mime.MediaTypeNames;
+using System.Collections.Generic;
+using System.Text.RegularExpressions;
+using System.Security.AccessControl;
+using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Xml.Linq;
-using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Text.Encodings.Web;
+
+/// <summary>
+///   <para>
+///     Thrown to indicate that a change to a cell will cause a circular dependency.
+///   </para>
+/// </summary>
+public class CircularException : Exception
+{
+}
+
+/// <summary>
+///   <para>
+///     Thrown to indicate that a name parameter was invalid.
+///   </para>
+/// </summary>
+public class InvalidNameException : Exception
+{
+}
 
 /// <summary>
 /// <para>
@@ -38,24 +57,6 @@ public class SpreadsheetReadWriteException : Exception
     : base(msg)
     {
     }
-}
-
-/// <summary>
-///   <para>
-///     Thrown to indicate that a change to a cell will cause a circular dependency.
-///   </para>
-/// </summary>
-public class CircularException : Exception
-{
-}
-
-/// <summary>
-///   <para>
-///     Thrown to indicate that a name parameter was invalid.
-///   </para>
-/// </summary>
-public class InvalidNameException : Exception
-{
 }
 
 /// <summary>
@@ -114,94 +115,45 @@ public class InvalidNameException : Exception
 ///     dependency.
 /// </para>
 /// </summary>
-/// 
-
 public class Spreadsheet
 {
     /// <summary>
-    /// This private instance bject DependencyGraph will track the dependency of the cells
+    ///   All variables are letters followed by numbers.  This pattern
+    ///   represents valid variable name strings. (From Formula.cs)
     /// </summary>
-    private DependencyGraph dg;
+    private const string VariableRegExPattern = @"[a-zA-Z]+\d+";
     /// <summary>
-    /// This private instance dictionary will record every cells that has value
-    /// if a cell was asigned to an empty string, it will be removed from the Cells dictionary
+    /// Dictionary to connect a name string to a corresponding cell
     /// </summary>
     [JsonInclude]
     private Dictionary<string, Cell> Cells;
     /// <summary>
-    /// This private string is used to chekc if the input cell name if valid or not
+    /// A dependency graph to keep track of dependency between each cells 
     /// </summary>
-    private const string VariableRegExPattern = @"[a-zA-Z]+\d+";
+    private DependencyGraph CellDgraph;
+    /// <summary>
+    /// True if this spreadsheet has been changed since it was 
+    /// created or saved (whichever happened most recently),
+    /// False otherwise.
+    /// </summary>
+    [JsonIgnore]
+    public bool Changed { get; private set; }
 
     /// <summary>
-    /// A SpreadSheet constructor that take no input, and reset all instence variable. 
+    /// Constructor that initialize a Spreadsheet when it is called
     /// </summary>
+    ///  <para>
+    ///     Creates a new Spreadsheet. Intialize a cell dictionary, dependency graph and a changed variable
+    ///  </para>
+    ///  
+    /// <param name="name"> A string name that the cell is associated to </param>
+    /// <param name="content"> An object content that can be string double or Formula since setcell methods of Spreadsheet has 3 different parameter types </param>
     public Spreadsheet()
     {
-        dg = new();
-        Cells = new();
-        IsChanged = false;
+        Cells = new Dictionary<string, Cell>();
+        CellDgraph = new DependencyGraph();
+        Changed = false;
     }
-
-
-    /// <summary>
-    /// This private Cell class contain the cell's data.
-    /// CellContent could be a string , double, or Formula object, depend on which value it was stored.
-    /// </summary>
-    private class Cell
-    {
-        /// <summary>
-        /// Store cell's value, could be a string, double,or FormulaError
-        /// </summary>
-        [JsonIgnore]
-        public object CellValue { get; set; }
-
-        /// <summary>
-        /// Store cell's content(StringForm), could be a string, double, Formula
-        /// </summary>
-        [JsonIgnore]
-        public object CellContent { get; set; }
-        /// <summary>
-        /// StringForm will record the display version of the cell content. For example, a formula will look loke "=a1+a2", double: "123.0", string: "hello".
-        /// </summary>
-        public string StringForm { get; set; }
-        /// <summary>
-        /// a basic cell constructor that json deserializer need. It set cell content and value to (double)0.0, and set StringForm to an empty string.
-        /// </summary>
-        public Cell()
-        {
-            CellContent = 0.0;
-            CellValue = 0.0;
-            StringForm = "";
-        }
-
-        /// <summary>
-        /// a cell constructor that take only cell's content, and set value to empty string.
-        /// </summary>
-        /// <param name="_cellContent"></param>
-        public Cell(object _cellContent)
-        {
-            CellContent = _cellContent;
-            CellValue = "";
-            if (CellContent is Formula)
-            {
-                Formula f = (Formula)CellContent;
-                StringForm = f.ToString();
-            }
-            else if (CellContent is double)
-            {
-                double value = (double)CellContent;
-                StringForm = value.ToString();
-            }
-            else
-            {
-                StringForm = (string)CellContent;
-            }
-        }
-    }
-
-
-
     /// <summary>
     ///   Provides a copy of the normalized names of all of the cells in the spreadsheet
     ///   that contain information (i.e., non-empty cells).
@@ -211,12 +163,8 @@ public class Spreadsheet
     /// </returns>
     public ISet<string> GetNamesOfAllNonemptyCells()
     {
-        HashSet<string> cellsWithValue = new HashSet<string>();
-        foreach (KeyValuePair<string, Cell> cell in Cells)
-        {
-            cellsWithValue.Add(cell.Key);
-        }
-        return cellsWithValue;
+        HashSet<string> NonEmptyCellNames = new HashSet<string>(Cells.Keys);             // Result set
+        return NonEmptyCellNames;
     }
 
     /// <summary>
@@ -234,24 +182,9 @@ public class Spreadsheet
     /// </returns>
     public object GetCellContents(string name)
     {
-        if (!IsValidCellName(name))
-            throw new InvalidNameException();
-
-        string n = name.ToUpper();
-        if (Cells.ContainsKey(n))
-            return Cells[n].CellContent;
-        return "";
-    }
-
-    /// <summary>
-    /// This helper method check if the input cell name is valid or not
-    /// </summary>
-    /// <param name="name">cell name to be checked</param>
-    /// <returns>If the cell name is valid return true, if not return false</returns>
-    private static bool IsValidCellName(string name)
-    {
-        string standaloneVarPattern = $"^{VariableRegExPattern}$";
-        return Regex.IsMatch(name, standaloneVarPattern);
+        name = IsValidCellName(name);                                                      // If name is not valid, throw InvalidNameException. Also normalized name
+        if (Cells.ContainsKey(name)) { return Cells[name].Content; }     // Check if spreadsheet have name as key, if not return string.Empty (Empty Content)
+        return string.Empty;
     }
 
     /// <summary>
@@ -283,16 +216,20 @@ public class Spreadsheet
     /// </returns>
     private IList<string> SetCellContents(string name, double number)
     {
-        string n = name.ToUpper();
-        SetOrUpdateCell(n, number);
-        Cells[n].CellValue = number;
-        foreach (string dependee in dg.GetDependees(n))
+        if (Cells.ContainsKey(name)) 
+        { 
+            Cells[name].Content = number;                                          
+            Cells[name].Value = number;                                            // If name existed, replace the content and value of cell under name
+        }   
+        else { Cells.Add(name, new Cell(number)); }
+        if (CellDgraph.HasDependees(name))
         {
-            dg.RemoveDependency(dependee, n);
+            foreach(string dependee in CellDgraph.GetDependees(name))                      
+            {               
+                    CellDgraph.RemoveDependency(dependee, name);                           // Check if cell has dependee, look for them and remove them as a number cannot have variable in it                   
+            }
         }
-        List<string> cellDependents = new(GetCellsToRecalculate(n));
-
-        return cellDependents;
+        return new List<string>(GetCellsToRecalculate(name));                              // GetCellsToRecalculate will produce the list
     }
 
     /// <summary>
@@ -309,15 +246,23 @@ public class Spreadsheet
     /// </returns>
     private IList<string> SetCellContents(string name, string text)
     {
-        string n = name.ToUpper();
-        SetOrUpdateCell(n, text);
-
-        if (Cells.ContainsKey(n))
-            Cells[n].CellValue = text;
-
-        List<string> cellDependents = new(GetCellsToRecalculate(n));
-        return cellDependents;
-
+        if (text != string.Empty)
+        {                                                                                       // If name is not valid, throw InvalidNameException. Also normalized name
+            if (Cells.ContainsKey(name)) 
+            { 
+                Cells[name].Content = text;
+                Cells[name].Value = text;                                            // If name existed, replace the content and value of cell under name
+            }
+            else { Cells.Add(name, new Cell(text)); }
+        }
+        if (CellDgraph.HasDependees(name))
+        {
+            foreach (string dependee in CellDgraph.GetDependees(name))
+            {
+                CellDgraph.RemoveDependency(dependee, name);                           // Check if cell has dependee, look for them and remove them as a number cannot have variable in it                   
+            }
+        }
+        return new List<string>(GetCellsToRecalculate(name));                                   // GetCellsToRecalculate will produce the list, excel can combine strings so I assume text cells still need to be reevaluated
     }
 
     /// <summary>
@@ -339,74 +284,31 @@ public class Spreadsheet
     ///   The same list as defined in <see cref="SetCellContents(string, double)"/>.
     /// </returns>
     private IList<string> SetCellContents(string name, Formula formula)
-    {
-        string n = name.ToUpper();
-        List<string> cellDependents = new();
-        List<string> listOfDependees = new();
-        if (Cells.ContainsKey(n))
+    {                                                                  
+        CellDgraph.ReplaceDependees(name, formula.GetVariables());                                           // Use replace to modify the dependecy graph after new changes 
+        object CellValue = 0;
+        List<string> cells = new List<string>(GetCellsToRecalculate(name));                                  // throw CircularException before adding to dictionary
+        if (!Cells.ContainsKey(name)) 
         {
-            //if it is overwrite a Formula cell, remove all the dependency with dependees.
-            if (Cells[n].CellContent is Formula)
-            {
-                foreach (string dependee in dg.GetDependees(n))
-                {
-                    listOfDependees.Add(dependee);
-                    dg.RemoveDependency(dependee, n);
-                }
-            }
-        }
-        //add new dependency with the cell and variable in new formula. 
-        foreach (string var in formula.GetVariables())
-        {
-            dg.AddDependency(var, n);
-        }
-        //try if the new dependency graph has cycle, if true undo what have done, then throw CircularException
-        try
-        {
-            cellDependents = new(GetCellsToRecalculate(n));
-        }
-        catch (CircularException)
-        {
-            foreach (string var in formula.GetVariables())
-            {
-                dg.RemoveDependency(var, n);
-
-            }
-            foreach(string dependee in listOfDependees)
-            {
-                dg.AddDependency(dependee, n);
-            }
-            throw new CircularException();
-        }
-        SetOrUpdateCell(n, formula);
-        return cellDependents;
+            CellValue = formula.Evaluate(VariableLookup);
+            Cells.Add(name, new Cell(formula));                                                             // Add Cell into the Cell Dictionary
+            Cells[name].Value = CellValue;                                                                  // Set Cell Value
+        }                                                                                                   // Add new cell into dictionary
+        else { Cells[name].Content = formula; }                                                             // Add new cell into dictionary
+        return cells;                                                                                       // GetCellsToRecalculate will produce the list and throw CircularException if found 
     }
+
     /// <summary>
-    /// a helper method to update cell's content, it will check if the name is in the Cells(check if the cell to be overwrited is empty or not)
-    /// if it's not empty check if it is set to empty string(become empty cell) if not overwrite the conetent.
-    /// if it's overwrite a empty cell, check if input content is an empty string, if not all the new cell and its content into Cells.
+    ///   A helper method that returns a normalized name and checks if given string is a valid cell name (variable) or not. If not it throws InvalidNameException()
     /// </summary>
-    /// <param name="name"></param>
-    /// <param name="content"></param>
-    private void SetOrUpdateCell(string name, object content)
+    private string IsValidCellName(string name)
     {
-        if (Cells.ContainsKey(name))
+        if (name == string.Empty || !Regex.IsMatch(name,$"^{VariableRegExPattern}$"))                          // If name is empty or not a valid variable, throw InvalidNameException
         {
-            if (content.Equals(""))
-            {
-                Cells.Remove(name);
-            }
-            else
-
-                Cells[name].CellContent = content;
+            throw new InvalidNameException();
         }
-        else
-        {
-            if (!content.Equals(""))
-                Cells.Add(name, new Cell(content));
-        }
+        return name.ToUpper();
     }
-
     /// <summary>
     ///   Returns an enumeration, without duplicates, of the names of all cells whose
     ///   values depend directly on the value of the named cell.
@@ -428,12 +330,8 @@ public class Spreadsheet
     /// </returns>
     private IEnumerable<string> GetDirectDependents(string name)
     {
-        string n = name.ToUpper();
-        if (dg.HasDependents(n))
-        {
-            return dg.GetDependents(n);
-        }
-        return new HashSet<string>();
+        name = IsValidCellName(name);                                             // If name is not valid, throw InvalidNameException. Also normalized name
+        return CellDgraph.GetDependents(name);                                    // Reuse GetDependents method from Dependency Graph to get the list of direct dependents
     }
 
     /// <summary>
@@ -495,31 +393,36 @@ public class Spreadsheet
     }
 
     /// <summary>
-    /// Is a recursive method it will get all the direct and indirect dependents, and return all the cells it has visited.
+    ///   </para>
+    ///   A helper for the GetCellsToRecalculate method.
+    ///   </para>
+    ///   </para>
+    ///   A recursive method that goes into every dependents of the start cell name and all of their dependents to check for Circular Dependency
+    ///   and add into a list of dependents that will need to be recalculated. This recursive method use a set to keep track of visited cells and skip them.
+    ///   </para>
+    ///   <exception cref="CircularException">
+    ///   <para>
+    ///   If a cell show behavior of circular dependency where it has the original cell as its dependents, throw CircularException
+    ///   </para>
+    ///   </exception>
     /// </summary>
-    /// <param name="start">the starting cell(dependee)</param>
-    /// <param name="name">the dependent</param>
-    /// <param name="visited"> the cells method has been through, if visit a visited point means cycle exist. </param>
-    /// <param name="changed"> the cells need to change.</param>
-    /// <exception cref="CircularException">if there is a cycle in the dependency graph it will throw exception</exception>
     private void Visit(string start, string name, ISet<string> visited, LinkedList<string> changed)
     {
-        visited.Add(name);
-        foreach (string n in GetDirectDependents(name))
+        visited.Add(name);                                      // Add the current cell name into the visited list so it won't be revisited
+        foreach (string n in GetDirectDependents(name))         // For each loop that runs through every element of the dependent list return by GetDirectDependents()
         {
-            if (n.Equals(start))
+            if (n.Equals(start))                                // At any point in the recursive that n is equal to the original cell name, CircularException() is thrown
             {
                 throw new CircularException();
             }
-            else if (!visited.Contains(n))
+            else if (!visited.Contains(n))                      // If not visited, go into n to get its dependents
             {
-                Visit(start, n, visited, changed);
+                Visit(start, n, visited, changed);              // Recursive to get dependents of every dependents of the original
             }
         }
 
-        changed.AddFirst(name);
+        changed.AddFirst(name);                                 // Add current cell to the top of the list, goes from bottoms up so original cell should be first when method is complete
     }
-
     /// <summary>
     ///   <para>
     ///     Return the value of the named cell, as defined by
@@ -535,20 +438,10 @@ public class Spreadsheet
     /// </exception>
     public object this[string name]
     {
+        
         get { return GetCellValue(name); }
     }
 
-    /// <summary>
-    /// record if the spreadsheet is changed.
-    /// </summary>
-    private bool IsChanged = false;
-    /// <summary>
-    /// True if this spreadsheet has been changed since it was 
-    /// created or saved (whichever happened most recently),
-    /// False otherwise.
-    /// </summary>
-    [JsonIgnore]
-    public bool Changed { get { return IsChanged; } private set { } }
 
     /// <summary>
     /// Constructs a spreadsheet using the saved data in the file refered to by
@@ -563,32 +456,30 @@ public class Spreadsheet
     {
         try
         {
-            
-            dg = new DependencyGraph();
-            Cells = new Dictionary<string, Cell>();
-            IsChanged = false;
-            if (!File.Exists(filename))
-            {
-                throw new SpreadsheetReadWriteException("Invalid file path, can't find file.");
-            }
-            string jsonContent = File.ReadAllText(filename);
-            Spreadsheet? rebuilt_sp = JsonSerializer.Deserialize<Spreadsheet>(jsonContent);
-            if (rebuilt_sp is null)
-            {
-                throw new SpreadsheetReadWriteException($"Failed to load the spreadsheet from {filename}. The file can't be convert to a spread sheet");
-            }
-
-            foreach (KeyValuePair<string, Cell> cell in rebuilt_sp.Cells)
-            {
-                this.SetContentsOfCell(cell.Key, cell.Value.StringForm);
-            }
+            string JsonString = File.ReadAllText(filename);
+            loadFromJson(JsonString);
         }
-        catch (Exception ex)
+        catch (Exception e)
         {
-            throw new SpreadsheetReadWriteException($"Failed to load the spreadsheet from {filename}. Throw {ex}");
+            throw new SpreadsheetReadWriteException("Error loading file");
         }
     }
 
+    /// <summary>
+    /// A method that does not return anything, it helps create a spreadsheet from a given Json string. This method is used to load
+    ///  a Json string to save the spreadsheet using the GUI and help intialize a spreadsheet from the file
+    /// </summary>
+    public void loadFromJson(string JsonString)
+    {
+        IList<string> cellToChange = new List<string>();
+        Spreadsheet s = JsonSerializer.Deserialize<Spreadsheet>(JsonString);
+        Cells = s.Cells;
+        CellDgraph = new DependencyGraph();
+        foreach (KeyValuePair<string, Cell> cell in Cells)
+        {
+            SetContentsOfCell(cell.Key, cell.Value.StringForm);
+        }
+    }
 
 
     /// <summary>
@@ -656,24 +547,30 @@ public class Spreadsheet
     {
         try
         {
-            var jsonOptions = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            string json = JsonSerializer.Serialize(this, jsonOptions);
-            Console.WriteLine(json);
-            File.WriteAllText(filename, json);
+            string JSONString = GetJsonString();
+            File.WriteAllText(filename, JSONString);
+            Changed = false;
         }
-        catch (Exception ex)
+        catch (Exception e)
         {
-            throw new SpreadsheetReadWriteException($"Failed to save the spreadsheet to {filename}. Throw {ex}");
-
+            throw new SpreadsheetReadWriteException("Error saving file");
         }
     }
 
+    /// <summary>
+    /// A method that does not return anything, it helps create a Json string from the already existing information in the spreadsheet.
+    /// This method is used to generate a Json string to save the spreadsheet using the GUI and help intialize a spreadsheet from the file
+    /// </summary>
+    public string GetJsonString()
+    {
+        JsonSerializerOptions options = new JsonSerializerOptions
+        {
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+        options.WriteIndented = true;
 
-
+        return JsonSerializer.Serialize(this, options);
+    }
     /// <summary>
     ///   <para>
     ///     Return the value of the named cell.
@@ -689,27 +586,13 @@ public class Spreadsheet
     /// </exception>
     public object GetCellValue(string name)
     {
-        string n = name.ToUpper();
-        if (!IsValidCellName(n))
-            throw new InvalidNameException();
-        //return empty string if it is an empty cell
-        if (!Cells.ContainsKey(n))
+        name = IsValidCellName(name);
+        if (Cells.ContainsKey(name))
         {
-            return "";
+            return Cells[name].Value;
         }
-
-        //if the formula cell has never been evaluate before, this method will evalute an return the result for it.
-        if (Cells[n].CellContent is Formula && Cells[n].CellValue.Equals(""))
-        {
-            Formula f = (Formula)Cells[n].CellContent;
-            return f.Evaluate(findFormulaCellValue);
-        }
-        else
-        {
-            //get the cell value
-            return Cells[n].CellValue;
-        }
-
+        else { return ""; }
+        
     }
 
     /// <summary>
@@ -776,105 +659,157 @@ public class Spreadsheet
     /// </exception>
     public IList<string> SetContentsOfCell(string name, string content)
     {
-        //check InValied cell name
-        if (!IsValidCellName(name))
-            throw new InvalidNameException();
-        string n = name.ToUpper();
-        // first try parse the input-cell's content is double or not. 
-        double parsed_double;
-        if (double.TryParse(content, out parsed_double))
+        IList<string> result = new List<string>();                                                          // A return list so we don't have to change Changed at every return condition
+        string CellName = IsValidCellName(name);                                                           // Throw InvalidNameException if invalid cell name is pass through
+        if(content == string.Empty) { return result;  }
+        else if (Double.TryParse(content,out double number))                                               // If parsing content show a number, set content of cell name as number
         {
-            // if content is double, set the cell value to double, and reevaluate its dpendents
-            IsChanged = true;
-            List<string> cellsToChange = (List<string>)this.SetCellContents(n, parsed_double);
-            Cells[n].StringForm = content;
-            foreach (string cellToChange in cellsToChange)
-            {
-                if (cellToChange != n)
-                {
-                    if (Cells[cellToChange].CellContent is Formula)
-                    {
-                        Formula cellContentFormula = (Formula)Cells[cellToChange].CellContent;
-                        Cells[cellToChange].CellValue = cellContentFormula.Evaluate(findFormulaCellValue);
-                    }
-                }
-            }
-            return cellsToChange;
+            result = SetCellContents(CellName, number); 
+        }          
+        else if(!(content[0] == '='))                                                                      // If content is not a number or start with a = sign, it is a string, set content of cell as a string
+        {
+            result = SetCellContents(CellName, content); 
         }
-        //check if it's an empty string
-        else if (content != "")
+        else if (content[0] == '=')
         {
-            // if it's not an empty string and it first chat is '=', then it's a formula.
-            if (content[0] == '=')
+            Formula f = new Formula(content.Substring(1, content.Length - 1));
+            result = SetCellContents(CellName, f);                                                         // Take formula after the = sign at the start of string content, throw Circular Exception if invalid
+        }
+        foreach (string x in result)                                                                         // Reevaluate all the dependent cells after each changes
+        {
+            if (Cells[x].Content is Formula)
             {
-                //remove the beginning '=', stroe the frmula into cell content
-                string formulaString = content.Remove(0, 1);
-                Formula f = new Formula(formulaString);
-                IsChanged = true;
-                List<string> dependentsCells = (List<string>)this.SetCellContents(n, f);
-                if (Cells.ContainsKey(n))
-                    Cells[n].StringForm = content;
-                return dependentsCells;
+                Formula f = (Formula)Cells[x].Content;
+                Cells[x].Value = f.Evaluate(VariableLookup);
+            }
+            else if (Cells[x].Content is double)
+            {
+                Cells[x].StringForm = Cells[x].Content.ToString();
             }
             else
             {
-                //if it is not formula it's a string, set the string into cell content
-                IsChanged = true;
-                List<string> dependentsCells = (List<string>)this.SetCellContents(n, content);
-                if (Cells.ContainsKey(n))
-                    Cells[n].StringForm = content;
-                return dependentsCells;
+                Cells[x].StringForm = (string)Cells[x].Content;
             }
         }
-        // if it is tring to set an empty string into cell
-        else
-        {
-            // cehck if the orinal cell is empty or not, if it is set not empty to empty, IsChange become true
-            if (Cells.ContainsKey(n))
-            {
-                IsChanged = true;
-                Cells[n].StringForm = content;
-            }
-            List<string> dependentsCells = (List<string>)this.SetCellContents(n, content);
 
-            return dependentsCells;
-        }
+        Changed = true;                                                                                    // After no exception thrown then changed is true                                                                                     
+        return result;
     }
+
     /// <summary>
-    /// A helper recursive method that will find the certen cell value (double) and return it.
+    /// A Lookup method that is used to pass through the lookup delegate required by Formula.Evaluate(). This method takes in a variable name and either returns a
+    /// double or FormulaError depending on if there is a double value at the targeted cell
     /// </summary>
-    /// <param name="cellName">the cell name that evaluate need</param>
-    /// <returns>a double number that come from evalute a formula or a double type cell.</returns>
-    /// <exception cref="ArgumentException">if this method can't find the value( could be lack of variable or one of cell is string cell), throw the excpetion</exception>
-    private double findFormulaCellValue(string cellName)
+    /// <param name="variableName"></param>
+    /// <returns></returns>
+    /// <exception cref="ArgumentException"></exception>
+    private double VariableLookup(string variableName)
     {
-        //check if the cell is empty or not
-        if (Cells.ContainsKey(cellName))
+        if (Cells.ContainsKey(variableName))                                                   // If variable exist in dictionary, look for it, else throw ArgumentException
         {
-            object content = Cells[cellName].CellContent;
-            if (content is double)
-                return (double)content;
-            else if (content is Formula)
-            {
-                foreach (string dependee in dg.GetDependees(cellName))
-                {
-                    if (Cells[dependee].CellContent is Formula)
-                    {
-                        Formula formula = (Formula)Cells[dependee].CellContent;
-                        Cells[dependee].CellValue = (double)formula.Evaluate(findFormulaCellValue);
-                    }
-                    else if (Cells[dependee].CellContent is string)
-                    {
-                        throw new ArgumentException();
-                    }
-                }
-                Formula f = (Formula)Cells[cellName].CellContent;
-                Cells[cellName].CellValue = (double)f.Evaluate(findFormulaCellValue);
-                return (double)Cells[cellName].CellValue;
-            }
-            else { throw new ArgumentException(); }
+            object result = GetCellValue(variableName);
+            if(result is  double) { return (double)result; }
+            // Else it cannot be evaluated, throw argument exception
+            else { throw new ArgumentException("String cannot be evaluated"); }
         }
-        else throw new ArgumentException();
+
+        throw new ArgumentException("Variable cannot be found"); ;
     }
+
+    /// <summary>
+    /// A method that returns the current dependency list to give Spreadsheet GUI access to the dependencies. We can use it to highlight the dependencies of 
+    /// the selected cell when the button is hit.
+    /// </summary>
+    /// <returns> Return the dependency list linked to this spreadsheet </returns>
+    public DependencyGraph GetDependencyGraph()
+    {
+        return CellDgraph;
+    }
+    private class Cell
+    {
+    
+
+        /// <summary>
+        /// Object Content because content can be string, double or Formula. 
+        /// </summary>
+        [JsonIgnore]
+        public object Content { get; set; }
+
+        /// <summary>
+        /// Object Value that can be string, double or Formula Error
+        /// </summary>
+        [JsonIgnore]
+        public object Value { get; set; } 
+
+        /// <summary>
+        /// Object StringForm for JsonString generation
+        /// </summary>
+        public string StringForm { get; set; }
+
+
+        /// <summary>
+        /// No-argument Constructor for saving and loading JSON file
+        /// </summary>
+        ///  <para>
+        ///  No parameters
+        ///  </para>
+         public Cell()
+        {
+        }
+        /// <summary>
+        /// Constructor that initialize a Cell using given a number
+        /// </summary>
+        ///  <para>
+        ///     Creates a Cell that has a Name and Content
+        ///  </para>
+        ///  
+        /// <param name="name"> A string name that the cell is associated to </param>
+        /// <param name="content"> An object content that can be string double or Formula since setcell methods of Spreadsheet has 3 different parameter types </param>
+        public Cell(double content)
+        {
+            Content = content;
+            Value = content;
+            StringForm = content.ToString();
+        }
+
+        /// <summary>
+        /// Constructor that initialize a Cell using given a string
+        /// </summary>
+        ///  <para>
+        ///     Creates a Cell that has a Name and Content
+        ///  </para>
+        ///  
+        /// <param name="name"> A string name that the cell is associated to </param>
+        /// <param name="content"> An object content that can be string double or Formula since setcell methods of Spreadsheet has 3 different parameter types </param>
+        public Cell(string content)
+        {
+            Content = content;
+            Value = content;
+            StringForm = content;
+        }
+
+        /// <summary>
+        /// Constructor that initialize a Cell using given a formula
+        /// </summary>
+        ///  <para>
+        ///     Creates a Cell that has a Name and Content
+        ///  </para>
+        ///  
+        /// <param name="name"> A string name that the cell is associated to </param>
+        /// <param name="content"> If a formula is pass through the constructor, an evaluation will be run through it and store the result in value
+        public Cell(Formula content)
+        {
+            Content = content;
+            Value = new object();
+            StringForm = "="+content.ToString();
+        }
+
+
+        
+    }
+
+    
+
+
 }
 

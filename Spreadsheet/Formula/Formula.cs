@@ -12,24 +12,15 @@
 //     You should remove/add/adjust comments in your file as appropriate
 //     to represent your work and any changes you make.
 //   </para>
-// <authors> [Kuanyu Chien] </authors>
-// <date> [2024/09/20] </date>
 // </summary>
-
-
+// Co-Author: Hung Nguyen, Date: 9/22/2024, Course: CS 3500
 namespace CS3500.Formula;
 
-using System.Collections;
+using System.Data;
 using System.Linq;
 using System.Text.RegularExpressions;
-
-static class StackExtension
-{
-    public static bool IsOnTop(this Stack<string> s, string op)
-    {
-        return s.Count > 0 && op == s.Peek();
-    }
-}
+using System.Threading.Tasks;
+using System.Xml.Linq;
 
 /// <summary>
 ///   <para>
@@ -40,8 +31,8 @@ static class StackExtension
 ///   </para>
 ///   <para>
 ///     Spaces are significant only insofar that they delimit tokens.  For example, "xy" is
-///     a single variable, "x y" consists of two variables "x" and y; "x23" is a single variable;
-///     and "x 23" consists of a variable "x" and a number "23".  Otherwise, spaces are to be removed.
+///     a single variable, "tokens y" consists of two variables "tokens" and y; "x23" is a single variable;
+///     and "tokens 23" consists of a variable "tokens" and a number "23".  Otherwise, spaces are to be removed.
 ///   </para>
 ///   <para>
 ///     For Assignment Two, you are to implement the following functionality:
@@ -58,29 +49,15 @@ static class StackExtension
 ///     </item>
 ///   </list>
 /// </summary>
-public class Formula
-{
-    public delegate double Lookup(string variableName);
+public class Formula 
+{ 
     /// <summary>
     ///   All variables are letters followed by numbers.  This pattern
     ///   represents valid variable name strings.
     /// </summary>
     private const string VariableRegExPattern = @"[a-zA-Z]+\d+";
-    /// <summary>
-    ///   All scientific notation one number followed by E or e followed by another number. This pattern
-    ///   represents valid scientific notation strings.
-    /// </summary>
-    private const string NumberRegExPattern = @"[+-]?(\d+(\.\d*)?|\.\d+)[eE][+-]?\d+";
-    /// <summary>
-    ///   This variable record every variables when constructor check if variable is a valid variable.
-    /// </summary>
-    private HashSet<string> Variables = new HashSet<string>();
-    /// <summary>
-    ///   This variable record every token when constructor check if token is a valid token.
-    /// </summary>
-    private ArrayList ValidTokens = new ArrayList();
-
-
+    private List<string> tokens; // List of tokens to keep track of the formula
+    private string ToStringResult; // String that store the result of ToString
 
     /// <summary>
     ///   Initializes a new instance of the <see cref="Formula"/> class.
@@ -95,7 +72,7 @@ public class Formula
     ///   </para>
     ///   <list type="bullet">
     ///     <item>
-    ///        Invalid variable name, e.g., x, x1x  (Note: x1 is valid, but would be normalized to X1)
+    ///        Invalid variable name, e.g., tokens, x1x  (Note: x1 is valid, but would be normalized to X1)
     ///     </item>
     ///     <item>
     ///        Empty formula, e.g., string.Empty
@@ -111,115 +88,79 @@ public class Formula
     /// <param name="formula"> The string representation of the formula to be created.</param>
     public Formula(string formula)
     {
-        List<string> Tokens = GetTokens(formula);
+        tokens = GetTokens(formula);
+        bool PreviousIsNumber = false;  // Bool to check if previous token is a number
+        bool IsNumber = false;          // Bool to check if token is number
+        int OpenParenthesesCount = 0;   // Total count of "("
+        int CloseParenthesesCount = 0;  // Total count of ")"
+        ToStringResult = "";
 
-        if (Tokens.Count == 0)
+
+        bool isOp = false;
+
+        // Check if formula follows one token rule (Rule 1)
+        if (tokens.Count <= 0) { throw new FormulaFormatException("Formula have to have at least 1 token"); }
+        // Check if formula follows first token rule (Rule 5)
+        if (!IsVar(tokens[0]) && !Double.TryParse(tokens[0],out _) && tokens[0] != "(")
         {
-            throw new FormulaFormatException("Invalied input. There must be at least one token.");
+            throw new FormulaFormatException("Formula can start with a number, variable or open parentheses");
         }
-        string prevToken = "";
-        int openParenCount = 0;
-        int closeParenCount = 0;
-
-        if (!(IsVar(Tokens[0]) || IsNum(Tokens[0]) || Tokens[0].Equals("(")))
+        // Check if formula follows last token rule(Rule 6)
+        if (IsOperator(tokens[tokens.Count-1]) || tokens[tokens.Count - 1] == "(")
         {
-            throw new FormulaFormatException("Invalied input. Violate first token rule.");
-        }
-
-        foreach (string token in Tokens)
-        {
-
-            if (IsVar(token))
-            {
-                IsPrevNumVarOrClosingParen(prevToken);
-
-                Variables.Add(token.ToUpper());
-            }
-            else if (IsNum(token))
-            {
-                IsPrevNumVarOrClosingParen(prevToken);
-            }
-            else if (token.Equals("("))
-            {
-                IsPrevNumVarOrClosingParen(prevToken);
-                openParenCount++;
-            }
-            else if (token.Equals(")"))
-            {
-                closeParenCount++;
-                if (closeParenCount > openParenCount) throw new FormulaFormatException("Invalied input. Violate closing parentheses rule.");
-
-                IsPrevOperatorOrOpeningParen(prevToken);
-            }
-            else if (token.Equals("+") || token.Equals("-") || token.Equals("*") || token.Equals("/"))
-            {
-                IsPrevOperatorOrOpeningParen(prevToken);
-            }
-            else
-            {
-                throw new FormulaFormatException("Invalied input. Violate valid token rule.");
-            }
-
-            prevToken = token;
-            ValidTokens.Add(prevToken.ToUpper());
+            throw new FormulaFormatException("Formula can only end with a number, variable or close parentheses");
         }
 
-        if (closeParenCount != openParenCount) throw new FormulaFormatException("Invalied input. Violate balanced parentheses rule.");
-
-        if (!(IsVar(prevToken) || IsNum(prevToken) || prevToken.Equals(")")))
+        for (int i =0; i < tokens.Count; i++)
         {
-            throw new FormulaFormatException("Invalied input. Violate last token rule.");
+            //Setup formula variables and counters
+            isOp = IsOperator(tokens[i]);
+            //Check if the token is a number, parse it and replace it in the current list of tokens
+            if (Double.TryParse(tokens[i], out double n)) { IsNumber = true; tokens[i] = n.ToString(); } else { IsNumber = false; }
+            if (tokens[i] == "(") { OpenParenthesesCount++; } else if (tokens[i] == ")") { CloseParenthesesCount++; }
+
+            // Check if formula follows valid token rule (Rule 2)
+            if (tokens[i] != "(" && tokens[i] != ")" && !isOp && !IsNumber && !IsVar(tokens[i])) 
+            { 
+                throw new FormulaFormatException("All tokens in the formula must be valid"); 
+            }
+            // Check if formula follows closing parentheses rule (Rule 3)
+            if (CloseParenthesesCount > OpenParenthesesCount) 
+            { 
+                throw new FormulaFormatException("There cannot be more close parentheses than open parentheses at any point in the formula"); 
+            }
+            
+            // Check if formula follows following rule equation (Rule 7)
+            if ( i > 0 && (tokens[i - 1] == "(" || IsOperator(tokens[i-1])) && (!IsVar(tokens[i]) && !IsNumber && tokens[i] != "(" )) 
+            { 
+                throw new FormulaFormatException("After an open parentheses, only a number, variable or another variable is allowed"); 
+            }
+            //Check if formula follows extra following rule (Rule 8)
+            if ((PreviousIsNumber && tokens[i] != ")" && !isOp)||(i+1 < tokens.Count && tokens[i] == ")" && !IsOperator(tokens[i+1]) && tokens[i+1]!=")")) 
+            { 
+                throw new FormulaFormatException("After a number must be an operator or close parentheses"); 
+            } 
+            if(IsNumber) { PreviousIsNumber=true; } else { PreviousIsNumber = false; }
+            tokens[i] = tokens[i].ToUpper(); //Normalize every token that pass through the method, as directed by 
+            ToStringResult += tokens[i];
         }
+        // Check if formula follow balanced parentheses rule (Rule 4)
+        if (OpenParenthesesCount != CloseParenthesesCount) 
+        { 
+            throw new FormulaFormatException("Number of parentheses is uneven"); 
+        }   
     }
 
     /// <summary>
-    /// Check if the closing parenthesis or operators' previous token is operator or opening parenthesis. 
-    /// If it's that means the formula vioalte parenthesis/operator following rule. 
+    /// Helper method Return a boolean that is the result of a check if character is an operator or not
     /// </summary>
-    /// <param name="previousToken"> previous token in formula</param>
-    /// <exception cref="FormulaFormatException">throw formula format exception when formula break parenthesis/operator following rule</exception>
-    private void IsPrevOperatorOrOpeningParen(string previousToken)
+    /// <param name="c"></param>
+    /// <returns></returns>
+    private bool IsOperator(string token)
     {
-        if (previousToken.Equals("(") || previousToken.Equals("+") || previousToken.Equals("-") || previousToken.Equals("*") || previousToken.Equals("/"))
-        {
-            throw new FormulaFormatException("Invalied input. Violate Parenthesis/Operator following rule.");
-        }
-
+        //Check if string token is any of these operators, return true if correct
+        if (token == "-" || token == "+" || token == "/" || token == "*") { return true; } else { return false; } 
     }
-
-    /// <summary>
-    /// Check if the number, variable or opening parenthesis' previous token is number, variable or closing parenthesis. 
-    /// If it's that means the formula vioalte extra following rule.
-    /// </summary>
-    /// <param name="previousToken"> previous token in formula </param>
-    /// <exception cref="FormulaFormatException">throw formula format exception when formula break parenthesis/operator following rule</exception>
-    private void IsPrevNumVarOrClosingParen(string previousToken)
-    {
-
-        if (IsNum(previousToken) || IsVar(previousToken) || previousToken.Equals(")"))
-        {
-            throw new FormulaFormatException("Invalied input. Violate Extra following rule.");
-        }
-
-    }
-
-    /// <summary>
-    /// helper method that check if the token is a number or not.
-    /// </summary>
-    /// <param name="token">the token to be checked if the token i a number or not</param>
-    /// <returns>true if the token is be considered a valied number. false if not </returns>
-    private static bool IsNum(string token)
-    {
-        int parsedInt;
-        double parsedDouble;
-        if (int.TryParse(token, out parsedInt) || double.TryParse(token, out parsedDouble))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
     /// <summary>
     ///   <para>
     ///     Returns a set of all the variables in the formula.
@@ -227,18 +168,24 @@ public class Formula
     ///   <remarks>
     ///     Important: no variable may appear more than once in the returned set, even
     ///     if it is used more than once in the Formula.
-	///     Variables should be returned in canonical form, having all letters converted
-	///     to uppercase.
     ///   </remarks>
+    ///   <para>
+    ///     For example, if N is a method that converts all the letters in a string to upper case:
+    ///   </para>
     ///   <list type="bullet">
-    ///     <item>new("x1+y1*z1").GetVariables() should return a set containing "X1", "Y1", and "Z1".</item>
-    ///     <item>new("x1+X1"   ).GetVariables() should return a set containing "X1".</item>
+    ///     <item>new("x1+y1*z1").GetVariables() should enumerate "X1", "Y1", and "Z1".</item>
+    ///     <item>new("x1+X1"   ).GetVariables() should enumerate "X1".</item>
     ///   </list>
     /// </summary>
     /// <returns> the set of variables (string names) representing the variables referenced by the formula. </returns>
     public ISet<string> GetVariables()
     {
-        return Variables;
+        ISet<string> variables = new HashSet<string>();
+        foreach (string token in tokens) 
+        {
+            if (IsVar(token) && !variables.Contains(token)) { variables.Add(token); }
+        }
+        return variables;
     }
 
     /// <summary>
@@ -273,33 +220,7 @@ public class Formula
     /// </returns>
     public override string ToString()
     {
-        string result = "";
-        foreach (string token in ValidTokens)
-        {
-            if (IsNum(token))
-            {
-                int numIntValue;
-                Double numDoubleValue;
-                if (int.TryParse(token, out numIntValue))
-                {
-                    result += numIntValue;
-                }
-                else if (Double.TryParse(token, out numDoubleValue))
-                {
-                    result += numDoubleValue;
-                }
-
-            }
-            else if (IsVar(token))
-            {
-                result += token.ToUpper();
-            }
-            else
-            {
-                result += token;
-            }
-        }
-        return result;
+        return ToStringResult;
     }
 
     /// <summary>
@@ -370,6 +291,62 @@ public class Formula
 
     /// <summary>
     ///   <para>
+    ///     Reports whether f1 == f2, using the notion of equality from the <see cref="Equals"/> method.
+    ///   </para>
+    /// </summary>
+    /// <param name="f1"> The first of two formula objects. </param>
+    /// <param name="f2"> The second of two formula objects. </param>
+    /// <returns> true if the two formulas are the same.</returns>
+    public static bool operator ==(Formula f1, Formula f2)
+    {
+        return f1.Equals(f2);
+    }
+
+    /// <summary>
+    ///   <para>
+    ///     Reports whether f1 != f2, using the notion of equality from the <see cref="Equals"/> method.
+    ///   </para>
+    /// </summary>
+    /// <param name="f1"> The first of two formula objects. </param>
+    /// <param name="f2"> The second of two formula objects. </param>
+    /// <returns> true if the two formulas are not equal to each other.</returns>
+    public static bool operator !=(Formula f1, Formula f2)
+    {
+        return !f1.Equals(f2);
+    }
+
+    /// <summary>
+    ///   <para>
+    ///     Determines if two formula objects represent the same formula.
+    ///   </para>
+    ///   <para>
+    ///     By definition, if the parameter is null or does not reference 
+    ///     a Formula Object then return false.
+    ///   </para>
+    ///   <para>
+    ///     Two Formulas are considered equal if their canonical string representations
+    ///     (as defined by ToString) are equal.  
+    ///   </para>
+    /// </summary>
+    /// <param name="obj"> The other object.</param>
+    /// <returns>
+    ///   True if the two objects represent the same formula.
+    /// </returns>
+    public override bool Equals(object? obj)
+    {
+        if (obj == null) { return false; }
+        else
+        {
+            if (!(obj is Formula)) { return false; }
+            else
+            {
+                return obj.ToString() == this.ToString();
+            }
+        }
+    }
+
+    /// <summary>
+    ///   <para>
     ///     Evaluates this Formula, using the lookup delegate to determine the values of
     ///     variables.
     ///   </para>
@@ -395,154 +372,115 @@ public class Formula
     ///   </para>
     /// </param>
     /// <returns> Either a double or a FormulaError, based on evaluating the formula.</returns>
-
-
     public object Evaluate(Lookup lookup)
     {
-        Stack<string> valueStack = new Stack<string>();
-        Stack<string> operatorStack = new Stack<string>();
-
-        foreach (string token in ValidTokens)
+        Stack<double> ValueStack = new Stack<double> ();
+        Stack<string> OperatorStack = new Stack<string> ();
+        double n = 0;
+        bool DividedByZero = false;
+        foreach (string token in tokens) 
         {
-            if (IsNum(token) || IsVar(token))
+            if (DividedByZero) { return new FormulaError("Divided by zero"); }
+            if (token == "(")                   // Check if token is (
             {
-                double tokenValue;
-                if (IsNum(token))
+                OperatorStack.Push(token);      // Push ( into OperatorStack
+                continue;                       // Move on to next token
+            }
+            else if (token == ")")
+            {
+                if (OperatorStack.Peek() == "+" || OperatorStack.Peek() == "-")
                 {
-                    tokenValue = double.Parse(token);
+                    Calculate(ValueStack, OperatorStack.Pop());
+                }
+                if (OperatorStack.Peek() == "(") { OperatorStack.Pop(); }
+                if (OperatorStack.Count > 0 && (OperatorStack.Peek() == "*" || OperatorStack.Peek() == "/"))
+                {
+                    DividedByZero = Calculate(ValueStack, OperatorStack.Pop());
+                }
+                continue;
+            }
+
+            else if (Double.TryParse(token, out n)) // Try to convert token into double
+            {
+                if (ValueStack.Count == 0)
+                {
+                    ValueStack.Push(n);
+                    continue;
+                }
+                if (OperatorStack.Peek() == "*" || OperatorStack.Peek() == "/")
+                {
+                    ValueStack.Push(n);         // Since I am using a helper method, push n into stack to pop it twice
+                    DividedByZero = Calculate(ValueStack, OperatorStack.Pop());
+                    continue;
                 }
                 else
                 {
-                    try { tokenValue = lookup(token); }
-                    catch (ArgumentException)
-                    {
-                        return new FormulaError("Can't find the variable value");
-                    }
-                }
-
-                if (operatorStack.IsOnTop("*") || operatorStack.IsOnTop("/"))
-                {
-                    double pushValue;
-
-                    if (!TryCalculateDivideByZero(tokenValue, double.Parse(valueStack.Pop()), operatorStack.Pop(), out pushValue))
-                    {
-                        FormulaError er = new("");
-                        return er;
-                    }
-
-                    valueStack.Push(pushValue.ToString());
-                }
-                else
-                {
-                    valueStack.Push(tokenValue.ToString());
+                    ValueStack.Push(n);         // Push token into the stack
                 }
             }
-
-            else if (token.Equals("+") || token.Equals("-"))
+            else if (IsOperator(token))                  // Check if token is an operator
             {
-                if (operatorStack.IsOnTop("+") || operatorStack.IsOnTop("-"))
+                if (token == "*" || token == "/")
                 {
-                    TryCalculateDivideByZero(double.Parse(valueStack.Pop()), double.Parse(valueStack.Pop()), operatorStack.Pop(), out double pushValue);
-                    valueStack.Push(pushValue.ToString());
+                    OperatorStack.Push(token);      // Push * or / into OperatorStack
+                    continue;                       //Move on to next token to skip the rest of the code that won't be used
                 }
-                operatorStack.Push(token);
-            }
-
-            else if (token.Equals("*") || token.Equals("/") || token.Equals("("))
-            {
-                operatorStack.Push(token);
-            }
-
-            else
-            {
-                if (operatorStack.IsOnTop("+") || operatorStack.IsOnTop("-"))
+                if (token == "+" || token == "-")
                 {
-                    TryCalculateDivideByZero(double.Parse(valueStack.Pop()), double.Parse(valueStack.Pop()), operatorStack.Pop(), out double pushValue);
-                    valueStack.Push(pushValue.ToString());
 
-                    operatorStack.Pop();  // pop extra "("
-                }
-                if (operatorStack.IsOnTop("*") || operatorStack.IsOnTop("/"))
-                {
-                    if (!TryCalculateDivideByZero(double.Parse(valueStack.Pop()), double.Parse(valueStack.Pop()), operatorStack.Pop(), out double pushValue))
+                    if (OperatorStack.Count > 0 && (OperatorStack.Peek() == "+" || OperatorStack.Peek() == "-"))
                     {
-                        FormulaError er = new("");
-                        return er;
+                        Calculate(ValueStack, OperatorStack.Pop()); // Call helper method to calculate and push result into stack
+                        OperatorStack.Push(token);
+                        continue;
                     }
-                    valueStack.Push(pushValue.ToString());
+                    else
+                    {
+                        OperatorStack.Push(token);      // I would put continue here as well, but for code coverage I removed it
+                    }
                 }
-
+            }
+            else 
+            {
+                try
+                {
+                    ValueStack.Push(lookup(token));     //Error should be thrown here if token is not valid}
+                }
+                catch (ArgumentException)
+                {
+                    return new FormulaError("Invalid Token");
+                }
             }
         }
 
-        if (operatorStack.Count == 0)
-        {
-            return double.Parse(valueStack.Pop());
-        }
-        else
-        {
-            while (operatorStack.Peek() == "(")
-            {
-                operatorStack.Pop();
-            }
+        while(OperatorStack.Count > 0) { DividedByZero = Calculate(ValueStack, OperatorStack.Pop()); }
+        if (DividedByZero) { return new FormulaError("Divided by zero"); }
+        if (OperatorStack.Count == 0) { return ValueStack.Pop(); }
+        return ValueStack.Pop();
+       
 
-            TryCalculateDivideByZero(double.Parse(valueStack.Pop()), double.Parse(valueStack.Pop()), operatorStack.Pop(), out double pushValue);
-            return pushValue;
-        }
     }
 
     /// <summary>
-    /// This helper method try to calculate the result of the formula.
-    /// When it's divide by zero, it return fasle. Otherwise, true.
-    /// It use out key word, so it also return the calculated result.
+    ///   <para>
+    ///     Push the result of the caculation into value stack. A helper method that calculate using the given values and operator
+    ///   </para>
     /// </summary>
-    /// <param name="a">first double number in the foumula</param>
-    /// <param name="b">second double number in the foumula</param>
-    /// <param name="op">the operator in the formula</param>
-    /// <param name="output">output of the evaluation</param>
-    /// <returns>false if is divide by zero, true otherwise.</returns>
-    private bool TryCalculateDivideByZero(double a, double b, string op, out double output)
+    /// <returns> Nothing, modify valuestack by pushing the result of the calculation </returns>
+    private bool Calculate( Stack<double> ValueStack, string op)
     {
-        if (op == "+") { output = b + a; return true; }
-        else if (op == "-") { output = b - a; return true; }
-        else if (op == "*") { output = b * a; return true; }
-        else
+        double value1 = ValueStack.Pop();
+        double value2 = ValueStack.Pop();
+        if(op =="+") { ValueStack.Push(value1 + value2); }
+        else if (op == "-") { ValueStack.Push(value2 - value1); }
+        else if (op == "*") { ValueStack.Push(value1 * value2); }
+        else if (op == "/") 
         {
-            if (a == 0.0)
-            {
-                output = 0.0;
-                return false;
-            }
-            output = b / a;
-            return true;
+            if (value1 != 0) { ValueStack.Push(value2 / value1); }
+            else { return true; }
         }
+        return false;
     }
-
-
-    /// <summary>
-    ///   <para>
-    ///     Determines if two formula objects represent the same formula.
-    ///   </para>
-    ///   <para>
-    ///     By definition, if the parameter is null or does not reference 
-    ///     a Formula Object then return false.
-    ///   </para>
-    ///   <para>
-    ///     Two Formulas are considered equal if their canonical string representations
-    ///     (as defined by ToString) are equal.  
-    ///   </para>
-    /// </summary>
-    /// <param name="obj"> The other object.</param>
-    /// <returns>
-    ///   True if the two objects represent the same formula.
-    /// </returns>
-    public override bool Equals(object? obj)
-    {
-        if (obj is not Formula other) return false;
-        other = (Formula)obj;
-        return this.ToString().Equals(other.ToString());
-    }
-
     /// <summary>
     ///   <para>
     ///     Returns a hash code for this Formula.  If f1.Equals(f2), then it must be the
@@ -553,58 +491,9 @@ public class Formula
     /// <returns> The hashcode for the object. </returns>
     public override int GetHashCode()
     {
-        return this.ToString().GetHashCode();
-    }
-
-
-    /// <summary>
-    ///   <para>
-    ///     Reports whether f1 == f2, using the notion of equality from the <see cref="Equals"/> method.
-    ///   </para>
-    /// </summary>
-    /// <param name="f1"> The first of two formula objects. </param>
-    /// <param name="f2"> The second of two formula objects. </param>
-    /// <returns> true if the two formulas are the same.</returns>
-    public static bool operator ==(Formula f1, Formula f2)
-    {
-        return f1.Equals(f2);
-    }
-
-    /// <summary>
-    ///   <para>
-    ///     Reports whether f1 != f2, using the notion of equality from the <see cref="Equals"/> method.
-    ///   </para>
-    /// </summary>
-    /// <param name="f1"> The first of two formula objects. </param>
-    /// <param name="f2"> The second of two formula objects. </param>
-    /// <returns> true if the two formulas are not equal to each other.</returns>
-    public static bool operator !=(Formula f1, Formula f2)
-    {
-        return !f1.Equals(f2);
-    }
-
-}
-
-
-/// <summary>
-///   Used to report syntax errors in the argument to the Formula constructor.
-/// </summary>
-public class FormulaFormatException : Exception
-{
-    /// <summary>
-    ///   Initializes a new instance of the <see cref="FormulaFormatException"/> class.
-    ///   <para>
-    ///      Constructs a FormulaFormatException containing the explanatory message.
-    ///   </para>
-    /// </summary>
-    /// <param name="message"> A developer defined message describing why the exception occured.</param>
-    public FormulaFormatException(string message)
-        : base(message)
-    {
-        // All this does is call the base constructor. No extra code needed.
+        return (ToString()+ tokens[0] + tokens[tokens.Count - 1]).GetHashCode() * tokens.Count; //Multiply the Hash Code of (Normalized string + first and last token) by the number of tokens to get the hashCode
     }
 }
-
 
 /// <summary>
 /// Used as a possible return value of the Formula.Evaluate method.
@@ -628,3 +517,39 @@ public class FormulaError
     /// </summary>
     public string Reason { get; private set; }
 }
+
+/// <summary>
+///   Any method meeting this type signature can be used for
+///   looking up the value of a variable.
+/// </summary>
+/// <exception cref="ArgumentException">
+///   If a variable name is provided that is not recognized by the implementing method,
+///   then the method should throw an ArgumentException.
+/// </exception>
+/// <param name="variableName">
+///   The name of the variable (e.g., "A1") to lookup.
+/// </param>
+/// <returns> The value of the given variable (if one exists). </returns>
+public delegate double Lookup(string variableName);
+
+/// <summary>
+///   Used to report syntax errors in the argument to the Formula constructor.
+/// </summary>
+public class FormulaFormatException : Exception
+{
+    /// <summary>
+    ///   Initializes a new instance of the <see cref="FormulaFormatException"/> class.
+    ///   <para>
+    ///      Constructs a FormulaFormatException containing the explanatory message.
+    ///   </para>
+    /// </summary>
+    /// <param name="message"> A developer defined message describing why the exception occured.</param>
+    public FormulaFormatException(string message)
+        : base(message)
+    {
+        // All this does is call the base constructor. No extra code needed.
+    }
+}
+
+
+
